@@ -271,3 +271,284 @@ ggsave(p, filename = "TMB.pdf", width = 5, height = 7)
 #Plotting code of NAL、MANTIS score is consistent with TMB
 #Plotting code of Figure5A and Figure5B
 #CIBERSORT algorithm
+CoreAlg <- function(X, y){
+
+  #try different values of nu
+  svn_itor <- 3
+
+  res <- function(i){
+    if(i==1){nus <- 0.25}
+    if(i==2){nus <- 0.5}
+    if(i==3){nus <- 0.75}
+    model<-svm(X,y,type="nu-regression",kernel="linear",nu=nus,scale=F)
+    model
+  }
+
+  if(Sys.info()['sysname'] == 'Windows') out <- mclapply(1:svn_itor, res, mc.cores=1) else
+    out <- mclapply(1:svn_itor, res, mc.cores=svn_itor)
+
+  nusvm <- rep(0,svn_itor)
+  corrv <- rep(0,svn_itor)
+
+  #do cibersort
+  t <- 1
+  while(t <= svn_itor) {
+    weights = t(out[[t]]$coefs) %*% out[[t]]$SV
+    weights[which(weights<0)]<-0
+    w<-weights/sum(weights)
+    u <- sweep(X,MARGIN=2,w,'*')
+    k <- apply(u, 1, sum)
+    nusvm[t] <- sqrt((mean((k - y)^2)))
+    corrv[t] <- cor(k, y)
+    t <- t + 1
+  }
+
+  #pick best model
+  rmses <- nusvm
+  mn <- which.min(rmses)
+  model <- out[[mn]]
+
+  #get and normalize coefficients
+  q <- t(model$coefs) %*% model$SV
+  q[which(q<0)]<-0
+  w <- (q/sum(q))
+
+  mix_rmse <- rmses[mn]
+  mix_r <- corrv[mn]
+
+  newList <- list("w" = w, "mix_rmse" = mix_rmse, "mix_r" = mix_r)
+
+}
+
+#' do permutations
+#' @param perm Number of permutations
+#' @param X cell-specific gene expression
+#' @param y mixed expression per sample
+#' @export
+doPerm <- function(perm, X, Y){
+  itor <- 1
+  Ylist <- as.list(data.matrix(Y))
+  dist <- matrix()
+
+  while(itor <= perm){
+    #print(itor)
+
+    #random mixture
+    yr <- as.numeric(Ylist[sample(length(Ylist),dim(X)[1])])
+
+    #standardize mixture
+    yr <- (yr - mean(yr)) / sd(yr)
+
+    #run CIBERSORT core algorithm
+    result <- CoreAlg(X, yr)
+
+    mix_r <- result$mix_r
+
+    #store correlation
+    if(itor == 1) {dist <- mix_r}
+    else {dist <- rbind(dist, mix_r)}
+
+    itor <- itor + 1
+  }
+  newList <- list("dist" = dist)
+}
+
+#' Main functions
+#' @param sig_matrix file path to gene expression from isolated cells
+#' @param mixture_file heterogenous mixed expression
+#' @param perm Number of permutations
+#' @param QN Perform quantile normalization or not (TRUE/FALSE)
+#' @export
+CIBERSORT <- function(sig_matrix, mixture_file, perm=0, QN=TRUE){
+  library(e1071)
+  library(parallel)
+  library(preprocessCore)
+
+  #read in data
+  X <- read.table(sig_matrix,header=T,sep="\t",row.names=1,check.names=F)
+  Y <- read.table(mixture_file, header=T, sep="\t", row.names=1,check.names=F)
+
+  X <- data.matrix(X)
+  Y <- data.matrix(Y)
+
+  #order
+  X <- X[order(rownames(X)),]
+  Y <- Y[order(rownames(Y)),]
+
+  P <- perm #number of permutations
+
+  #anti-log if max < 50 in mixture file
+  if(max(Y) < 50) {Y <- 2^Y}
+
+  #quantile normalization of mixture file
+  if(QN == TRUE){
+    tmpc <- colnames(Y)
+    tmpr <- rownames(Y)
+    Y <- normalize.quantiles(Y)
+    colnames(Y) <- tmpc
+    rownames(Y) <- tmpr
+  }
+
+  #intersect genes
+  Xgns <- row.names(X)
+  Ygns <- row.names(Y)
+  YintX <- Ygns %in% Xgns
+  Y <- Y[YintX,]
+  XintY <- Xgns %in% row.names(Y)
+  X <- X[XintY,]
+
+  #standardize sig matrix
+  X <- (X - mean(X)) / sd(as.vector(X))
+
+  #empirical null distribution of correlation coefficients
+  if(P > 0) {nulldist <- sort(doPerm(P, X, Y)$dist)}
+
+  #print(nulldist)
+
+  header <- c('Mixture',colnames(X),"P-value","Correlation","RMSE")
+  #print(header)
+
+  output <- matrix()
+  itor <- 1
+  mixtures <- dim(Y)[2]
+  pval <- 9999
+
+  #iterate through mixtures
+  while(itor <= mixtures){
+
+    y <- Y[,itor]
+
+    #standardize mixture
+    y <- (y - mean(y)) / sd(y)
+
+    #run SVR core algorithm
+    result <- CoreAlg(X, y)
+
+    #get results
+    w <- result$w
+    mix_r <- result$mix_r
+    mix_rmse <- result$mix_rmse
+
+    #calculate p-value
+    if(P > 0) {pval <- 1 - (which.min(abs(nulldist - mix_r)) / length(nulldist))}
+
+    #print output
+    out <- c(colnames(Y)[itor],w,pval,mix_r,mix_rmse)
+    if(itor == 1) {output <- out}
+    else {output <- rbind(output, out)}
+
+    itor <- itor + 1
+
+  }
+
+  #save results
+  write.table(rbind(header,output), file="CIBERSORT-Results.txt", sep="\t", row.names=F, col.names=F, quote=F)
+
+  #return matrix object containing all results
+  obj <- rbind(header,output)
+  obj <- obj[,-1]
+  obj <- obj[-1,]
+  obj <- matrix(as.numeric(unlist(obj)),nrow=nrow(obj))
+  rownames(obj) <- colnames(Y)
+  colnames(obj) <- c(colnames(X),"P-value","Correlation","RMSE")
+  obj
+}
+library("limma")  
+expFile="symbol.txt"
+rt=read.table(expFile,sep="\t",header=T,check.names=F)
+rt=as.matrix(rt)
+rownames(rt)=rt[,1]
+exp=rt[,2:ncol(rt)]
+dimnames=list(rownames(exp),colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)),nrow=nrow(exp),dimnames=dimnames)
+data=avereps(data)
+data=data[rowMeans(data)>0,]
+v <-voom(data, plot = F, save.plot = F)
+out=v$E
+out=rbind(ID=colnames(out),out)
+write.table(out,file="uniq.txt",sep="\t",quote=F,col.names=F)        
+source("CIBERSORT.R")
+results=CIBERSORT("ref.txt", "uniq.txt", perm=1000, QN=TRUE)
+#Plotting code of Figure5C
+d1 <- STADR
+for(i in 1:nrow(d1)){
+    d1[i,1:i] <- STADR[i,1:i]
+}
+d2 <- STADP
+for (i in 1:nrow(STADP)) {
+    STADP[i,1:i] <- STADP[i,1:i]
+}
+d1[d2 > 0.05] <- NA
+library(ComplexHeatmap)
+colCorRight <-  circlize::colorRamp2(c(-1, 0, 1), c("green", "white", "#ef3b2c"))
+colCorLeft <- circlize::colorRamp2(c(-1, 0, 1), c("yellow", "white", "#762a83"))
+p1 <- Heatmap(d1, rect_gp = gpar(type = "none"), 
+              show_heatmap_legend = F,
+              cell_fun = function(j, i, x, y, width, height, fill) {
+                grid.rect(x = x, y = y, width = width, height = height,
+                          gp = gpar(col = "grey", fill = NA))
+                if(i == j) {
+                  grid.circle(x = x, y = y, r = 0.5 * min(unit.c(width, height)), gp = gpar(fill = "grey", col = NA))
+                  }else if(i > j) {
+                    grid.circle(x = x, y = y, r = abs(datR[i, j])/2 * min(unit.c(width, height)), 
+                                gp = gpar(fill = colCorLeft(datR[i, j]), col = NA))
+                    } else {
+                      grid.circle(x = x, y = y, r = abs(datR[i, j])/2 * min(unit.c(width, height)), 
+                                  gp = gpar(fill = colCorRight(datR[i, j]), col = NA))
+                      }
+                },
+              cluster_rows = FALSE, cluster_columns = FALSE,
+              show_row_names = T, show_column_names = T, 
+              row_names_side = "right", 
+              row_names_rot = 45,
+              row_names_gp = gpar(fontsize = 8),
+              column_names_gp = gpar(fontsize = 8)
+              )
+lgdRight <- Legend(col_fun = colCorRight,
+                   direction = "horizontal")
+lgdLeft <- Legend(col_fun = colCorLeft,
+                  direction = "horizontal")
+pd = list(lgdRight, lgdLeft) 
+pdf("Figure5C.pdf", width = 5, height = 5.5)
+draw(p1, annotation_legend_list = pd,
+     annotation_legend_side = "top")
+dev.off()
+#Plotting code of Figure5D and Figure5E
+mygene_data <- read.csv("input_expr.csv", row.names = 1)
+Subtype <- read.csv("input_group.csv", row.names = 1)
+colnames(mygene_data)<-mygene_data_test
+com_sam <- intersect(colnames(mygene_data),rownames(Subtype))
+mygene_data <- mygene_data[,com_sam]
+comprTab <- cross_subtype_compr(expr = mygene_data, 
+                                subt = Subtype,
+                                two_sam_compr_method = "wilcox", 
+                                res.path = ".")
+n.show_top_gene <- nrow(mygene_data)
+subt.order <- Subtype[order(Subtype$Subtype),,drop = F]
+indata <- mygene_data[comprTab$gene[1:n.show_top_gene],rownames(subt.order)]
+plotdata <- t(scale(t(indata)))
+plotdata[plotdata > 2] <- 2
+plotdata[plotdata < -2] <- -2
+blank <- "    "
+p.value <- comprTab$adjusted.p.value[1:n.show_top_gene]
+sig.label <- ifelse(p.value < 0.001,"****",
+                    ifelse(p.value < 0.005,"***",
+                           ifelse(p.value < 0.01,"**",
+                                  ifelse(p.value < 0.05,"*",""))))
+p.label <- formatC(p.value, 
+                   format = "e",
+                   digits = 2) 
+add.label <- str_pad(paste0(rownames(plotdata),sig.label), 
+                     max(nchar(paste0(rownames(plotdata),sig.label))), 
+                     side = "right")
+
+annCol <- subt.order 
+colnames(annCol)[1] <- paste(str_pad(colnames(annCol)[1], 
+                                     max(nchar(paste0(rownames(plotdata),sig.label))), 
+                                     side = "right"),
+                             "P-value",
+                             sep = blank)
+
+annColors <- list(c("WT"="lightblue", "MT"="pink")) 
+names(annColors) <- colnames(annCol)[1] 
+                   
