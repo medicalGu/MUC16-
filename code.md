@@ -195,3 +195,79 @@ output_ICI <- somaticInteractions(maf=maf, top=50, pvalue=c(0.05, 0.01))
 write.table(output$pairs, file="somaticInteractions.pairwise.tsv", quote=FALSE, row.names=FALSE, sep="\t")
 write.table(output$gene_sets, file="somaticInteractions.comet.tsv", quote=FALSE, row.names=FALSE, sep="\t")
 #Plotting code for Figure3E
+library(maftools)
+library(trackViewer)
+library(RColorBrewer)
+df<-read.table("lolliplot.txt",as.is = T,sep = "\t",header = T)
+newdf<-df[!is.na(df$HGVSp),]
+gff = readRDS(file = system.file('extdata', 'protein_domains.RDs', package = 'maftools'))
+refseqid <- strsplit(x = as.character(newdf$RefSeq), split = '.', fixed = TRUE)[[1]][1]
+protein_inform <- gff[HGNC %in% "MUC16"][refseq.ID == refseqid,]
+extractpos <- function(maf_aachange){
+  prot.spl = strsplit(x = as.character(maf_aachange), split = '.', fixed = TRUE)
+  prot.conv = sapply(sapply(prot.spl, function(x) x[length(x)]), '[', 1)
+  pos = gsub(pattern = 'Ter.*', replacement = '',x = prot.conv)
+  pos = gsub(pattern = '[[:alpha:]]', replacement = '', x = pos)
+  pos = gsub(pattern = '\\*$', replacement = '', x = pos)
+  pos = gsub(pattern = '^\\*', replacement = '', x = pos)
+  pos = gsub(pattern = '\\*.*', replacement = '', x = pos)
+  pos = as.numeric(sapply(X = strsplit(x = pos, split = '_', fixed = TRUE), FUN = function(x) x[1])) 
+  aa = paste0(unlist(regmatches(maf_aachange, gregexpr("p[.].[0-9]+",maf_aachange))),"X")
+  mutpos = data.frame(position = pos, mutation = maf_aachange, aa = aa, stringsAsFactors = F)
+  return(mutpos[order(mutpos$pos),])
+}
+pos <- extractpos(newdf$HGVSp_Short)
+head(pos)
+nrpos <- pos[!duplicated(pos),]
+rownames(nrpos) <- nrpos$mutation
+nrpos$rate <- 1
+nrpos[names(table(pos$mutation)),]$rate <-table(pos$mutation)
+head(nrpos)
+features <- GRanges("chr1", IRanges(start=protein_inform$Start,end=protein_inform$End,names=protein_inform$Description))
+features$height <- 0.07 
+features$fill<-brewer.pal(9,"Set1")[1:3]
+newpos <- pos[!duplicated(pos$position),]
+newpos$aachange <- newpos$mutation
+rownames(newpos) <-newpos$position
+duppos <- names(table(pos$position)[table(pos$position)>1])
+newpos[duppos,]$aachange <- newpos[duppos,]$aa
+
+sample.gr <- GRanges("chr1", IRanges(newpos$position, width=1, names=newpos$aachange))
+sample.gr$label.parameter.rot <- 45
+sample.gr$label <- as.character(table(pos$position))
+sample.gr$label.col <- "white"
+sample.gr$color <-sample.gr$border <- brewer.pal(9,"Set1")[4]
+sample.gr$score<- log2(table(pos$position))
+labs<-sample.gr$label
+labs[labs=="1"]<-""
+sample.gr$label <- labs
+torb <- sample(c("top", "bottom"), length(sample.gr), replace=TRUE)
+sample.gr$SNPsideID <- torb
+sample.gr$color[torb=="bottom"] <- sample.gr$border[torb=="bottom"] <- brewer.pal(9,"Set1")[7]
+
+pdf("lolliplot.pdf",width=21)
+lolliplot(sample.gr, features,xaxis = c(protein_inform$Start,protein_inform$End),yaxis = F, ylab = F,type="circle")
+dev.off()
+#Plotting code of Figure4
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+pdata_melt <- read.csv("TMB.csv", header = T)
+c <- ggplot(pdata_melt,
+            aes(x=Sianature, y=TMB, fill=Type)) +
+  geom_boxplot(notch = F, alpha=0.95, outlier.colour = "black",
+               outlier.shape = 16,
+               outlier.size = 2) +
+  scale_fill_manual(values= c("#E7B800","#2E9FDF")) +
+  scale_color_manual(values= c("#E7B800","#2E9FDF")) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1,size = 13), 
+        axis.text.y = element_text(angle = 90, size = 13),
+        axis.title.y = element_text(angle = 90, size = 15)) +
+  theme(legend.position = "top")
+p <- c + stat_compare_means(label = "p.signif")
+ggsave(p, filename = "TMB.pdf", width = 5, height = 7)
+#Plotting code of NAL、MANTIS score is consistent with TMB
+#Plotting code of Figure5A and Figure5B
+#CIBERSORT algorithm
