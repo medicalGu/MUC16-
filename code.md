@@ -625,3 +625,43 @@ gsea <- GSEA(geneList,
 #Visualization via CAMOIP
 #Plotting code of Figure6C
 library(pRRophetic)
+library(ggplot2)
+library(cowplot)
+dat <- read.table("expr.txt",sep = "\t",row.names = 1,header = T,stringsAsFactors = F,check.names = F)
+ann <- read.table("anno.txt",sep = "\t",row.names = 1,header = T,stringsAsFactors = F,check.names = F)
+table(ann$cluster)
+GCP.drug <- read.table("drug.txt")
+GCP.drug <- GCP.drug$V1
+jco <- c("#EABF00", "#2874C5")
+GCPinfo <- GCP.IC50 <- GCP.expr <- cvOut <- predictedPtype <- predictedBoxdat <- list()
+plotp <- list()
+for (drug in GCP.drug) {
+  cat(drug," starts!\n") 
+  predictedPtype[[drug]] <- pRRopheticPredict(testMatrix = as.matrix(dat[,rownames(ann)]),
+                                              drug = drug,
+                                              tissueType = "allSolidTumors",
+                                              selection = 1)
+    if(!all(names(predictedPtype[[drug]])==rownames(ann))) {stop("Name mismatched!\n")}
+    predictedBoxdat[[drug]] <- data.frame("est.ic50"=predictedPtype[[drug]],
+                                                                                row.names = names(predictedPtype[[drug]])) 
+  predictedBoxdat[[drug]]$cluster <- factor(predictedBoxdat[[drug]]$cluster,levels = c("MT","WT"),ordered = T) 
+  p <- ggplot(data = predictedBoxdat[[drug]], aes(x=cluster, y=est.ic50))
+  p <- p + geom_boxplot(aes(fill = cluster)) + 
+    scale_fill_manual(values = jco[1:length(unique(ann$cluster))]) + 
+    theme(legend.position="none") + 
+    theme(axis.text.x = element_text(angle = 45, hjust = 1,size = 12),plot.title = element_text(size = 12, hjust = 0.5)) + 
+    xlab("") + ylab("Estimated IC50") + 
+    ggtitle(drug)
+    plotp[[drug]] <- p 
+  cat(drug," has been finished!\n") 
+}
+p <- vector()
+for (drug in GCP.drug) {
+  tmp <- wilcox.test(as.numeric(predictedBoxdat[[drug]][which(predictedBoxdat[[drug]]$ImmClust %in% "MT"),"est.ic50"]),
+                     as.numeric(predictedBoxdat[[drug]][which(predictedBoxdat[[drug]]$ImmClust %in% "WT"),"est.ic50"]),alternative = "less")$p.value
+  p <- append(p,tmp) 
+}
+names(p) <- GCP.drug
+print(p)
+#Plotting code of the heatmap is the same as Figure5D
+#Figure7 was performed by biorender
