@@ -591,3 +591,37 @@ ggplot(data = d1,aes(x = MUC16, y = Th2.Cells, fill = MUC16))+
     axis.title = element_text(size = 12),
     axis.text = element_text(size = 10))
 ggsave("Th2_violin.pdf", width = 4.5, height = 4)
+#The plotting codes for other immune scores are the same as above
+#Plotting code of Figure6A and Figure6B
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(pathview)
+library(enrichplot)
+data <- read.csv("sequence.csv",header=TRUE)
+gene <- data$SYMBOL
+gene=bitr(gene,fromType="SYMBOL",toType="ENTREZID",OrgDb="org.Hs.eg.db") 
+gene <- dplyr::distinct(gene,SYMBOL,.keep_all=TRUE)
+data_all <- data %>% 
+  inner_join(gene,by="SYMBOL")
+dim(data_all)
+head(data_all)
+data_all_sort <- data_all %>% 
+  arrange(desc(logFC))
+head(data_all_sort)
+geneList = data_all_sort$logFC 
+names(geneList) <- data_all_sort$ENTREZID 
+kegg_gmt <- read.gmt("c2.cp.kegg.v7.4.entrez.gmt")
+reactome_gmt<-read.gmt("c2.cp.reactome.v7.4.entrez.gmt")
+gsea <- GSEA(geneList,
+             TERM2GENE = kegg_gmt)
+ gse.GO <- gseGO(
+  geneList, 
+  ont = "ALL",  
+  OrgDb = org.Hs.eg.db, 
+  keyType = "ENTREZID",
+  pvalueCutoff = 0.05,
+  pAdjustMethod = "BH",
+)
+#Visualization via CAMOIP
+#Plotting code of Figure6C
+library(pRRophetic)
