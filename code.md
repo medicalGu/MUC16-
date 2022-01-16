@@ -74,6 +74,124 @@ forestplot(labeltext=tabletext,
            new_page = F
 )
 invisible(dev.off())
+pdf("forestplot of risk table.pdf", width = 8, height = 5)
+forestplot(labeltext=tabletextICI,
+           mean=c(NA,cox$OR),
+           lower=c(NA,cox$OR.95L), 
+           upper=c(NA,cox$OR.95H),
+           graph.pos=6,
+           graphwidth = unit(.25,"npc"),
+           fn.ci_norm="fpDrawDiamondCI",
+           col=fpColors(box="#00A896", lines="#02C39A", zero = "black"),
+           boxsize=0.4,
+           lwd.ci=1,
+           ci.vertices.height = 0.1,ci.vertices=F,
+           zero=1,
+           lwd.zero=1,
+           xticks = c(-1,0,1,2,3,4,5,6,7),
+           lwd.xaxis=2,
+           xlab=expression("log"[2]~"OR"),
+           hrzl_lines=list("1" = gpar(lwd=2, col="black"),
+                           "2" = gpar(lwd=1, col="grey50", lty=2)
+                          ),
+           txt_gp=fpTxtGp(label=gpar(cex=1.2),
+                          ticks=gpar(cex=0.85),
+                          xlab=gpar(cex=1),
+                          title=gpar(cex=1.5)),
+           lineheight = unit(.75,"cm"),
+           colgap = unit(0.3,"cm"),
+           mar=unit(rep(1.5, times = 4), "cm"),
+           new_page = F
+)
+invisible(dev.off())
 #KM plot(Figure2C)
 library("survival")
 library("survminer")
+fit <- survfit(Surv(time, status) ~ sex, data = survival)
+summary(fit)
+ggsurvplot(fit,
+          pval = TRUE, conf.int = TRUE,
+          risk.table = TRUE, 
+          risk.table.col = "strata", 
+          linetype = "strata", 
+          surv.median.line = "hv", 
+          ggtheme = theme_bw(), 
+          palette = c("#E7B800", "#2E9FDF"))
+#Sankey diagram（Figure2D and Figure2E）
+#CAMOIP was used to make volcano plot(Figure2F)
+#Plotting code for Figure3A
+library(TCGAbiolinks)
+library(maftools)
+clinical <- GDCquery(project = "TCGA-STAD", 
+                  data.category = "Clinical", 
+                  file.type = "xml")
+
+GDCdownload(clinical)
+
+cliquery <- GDCprepare_clinic(clinical, clinical.info = "patient")
+colnames(cliquery)[1] <- "Tumor_Sample_Barcode"
+mut <- GDCquery_Maf(tumor = "STAD", pipelines = "mutect2")
+maf <- read.maf(maf = mut, clinicalData = cliquery, isTCGA = T)
+#plotting
+col = RColorBrewer::brewer.pal(n = 10, name = 'Paired')
+names(col) = c('Frame_Shift_Del','Missense_Mutation', 'Nonsense_Mutation', 'Frame_Shift_Ins','In_Frame_Ins', 'Splice_Site', 'In_Frame_Del','Nonstop_Mutation','Translation_Start_Site')
+racecolors = RColorBrewer::brewer.pal(n = 4,name = 'Spectral')
+names(racecolors) = c("ASIAN", "WHITE", "BLACK OR AFRICAN AMERICAN",  "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER")
+gendercolors = c("SandyBrown","CadetBlue")
+names(gendercolors) = c("FEMALE","MALE")
+MUCcolors = c("SandyBrown","CadetBlue")
+names(MUCcolors) = c("MT","WT")
+ethnicitycolors=c("LightYellow1","LightYellow2")
+names(ethnicitycolors)=c("HISPANIC OR LATINO","NOT HISPANIC OR LATINO")
+gradecolors=c("LightSeaGreen","DarkOliveGreen1","SkyBlue","Goldenrod2")
+names(gradecolors)=c("G1","G2","G3","GX")
+annocolors = list(MUC16=MUCcolors,race_list = racecolors, 
+                  gender = gendercolors, 
+                  ethnicity = ethnicitycolors, 
+                  neoplasm_histologic_grade = gradecolors
+                  )
+pdf("oncoplotTop20_col.pdf",width = 15,height = 10)
+oncoplot(maf = maf,
+         colors = col,
+         annotationColor = annocolors,
+         top = 20,
+         clinicalFeatures = c("MUC16","race_list","gender","ethnicity","neoplasm_histologic_grade"),
+         sortByAnnotation = TRUE,
+         writeMatrix =T)
+dev.off()
+#plotting Figure3B
+col = RColorBrewer::brewer.pal(n = 10, name = 'Paired')
+names(col) = c('Frame_Shift_Del','Missense_Mutation', 'Nonsense_Mutation', 'Frame_Shift_Ins','In_Frame_Ins', 'Splice_Site', 'In_Frame_Del','Nonstop_Mutation','Translation_Start_Site','Intron')
+
+typecolors = RColorBrewer::brewer.pal(n = 3,name = 'Spectral')
+names(typecolors) = c("CIN", "GS", "EBV")
+pathcolors = RColorBrewer::brewer.pal(n = 7,name = 'Spectral')
+names(pathcolors) = c("Adenoneuroendocrine","M/D adeno ","Mixed (W/D and P/D)","P/D adeno","P/D adeno with NE feature","Signet ring cell ","W/D adeno")
+rescolors=c("LightSeaGreen","DarkOliveGreen1","SkyBlue","Goldenrod2")
+names(rescolors)=c("CR","PD","PR","SD")
+MUCcolors=c("LightSeaGreen","DarkOliveGreen1")
+names(MUCcolors)=c("WT","MT")
+annocolors = list(TCGA = typecolors, 
+                  Pathology = pathcolors, 
+                  Best_of_response = rescolors,
+                  MUC16=MUCcolors)
+                  
+pdf("oncoplotTop20_ICIcol.pdf",width = 15,height = 10)
+oncoplot(maf = laml,
+         colors = col,
+         annotationColor = annocolors, 
+         top = 20,
+         clinicalFeatures = c("MUC16","TCGA","Pathology","Best_of_response"),
+         sortByAnnotation = TRUE,
+         writeMatrix =T)
+dev.off()
+#Plotting code for Figure3C and Figure3D
+#Figure3C
+output <- somaticInteractions(maf=STAD, top=50, pvalue=c(0.05, 0.01))
+write.table(output$pairs, file="somaticInteractions.pairwise.tsv", quote=FALSE, row.names=FALSE, sep="\t")
+write.table(output$gene_sets, file="somaticInteractions.comet.tsv", quote=FALSE, row.names=FALSE, sep="\t")
+#Figure3D
+output_ICI <- somaticInteractions(maf=maf, top=50, pvalue=c(0.05, 0.01))
+write.table(output$pairs, file="somaticInteractions.pairwise.tsv", quote=FALSE, row.names=FALSE, sep="\t")
+write.table(output$gene_sets, file="somaticInteractions.comet.tsv", quote=FALSE, row.names=FALSE, sep="\t")
+#Plotting code for Figure3E
