@@ -551,4 +551,43 @@ colnames(annCol)[1] <- paste(str_pad(colnames(annCol)[1],
 
 annColors <- list(c("WT"="lightblue", "MT"="pink")) 
 names(annColors) <- colnames(annCol)[1] 
-                   
+pheatmap(cellheight = 15, cellwidth = 1,
+         mat = plotdata, 
+         scale = "none", 
+         annotation_col = annCol,
+         annotation_colors = annColors, 
+         cluster_cols = F,
+         cluster_rows = F, 
+         show_colnames = F,
+         show_rownames = T,
+         #annotation_legend = F, 
+         labels_row = paste(add.label, p.label, sep=blank), 
+         fontfamily = "mono", 
+         gaps_col = c(21),
+         filename = "all_ICI_heatmapPvalue.pdf")
+#Plotting code of  Figure5F-Figure5L
+p <- wilcox.test(d1[which(d1$MUC16 == "A"),"Th2.Cells"],d1[which(d1$MUC16 == "B"),"Th2.Cells"])$p.value
+jco <- c("#4876FF","#FFA54F")
+ggplot(data = d1,aes(x = MUC16, y = Th2.Cells, fill = MUC16))+
+  scale_fill_manual(values = jco[2:1]) + 
+  geom_violin(alpha=0.4, position = position_dodge(width = .75),
+              size=0.8, color="black") + 
+  geom_boxplot(notch = TRUE, outlier.size = -1, 
+               color="black", lwd=0.8, alpha = 0.7)+ 
+  geom_point(shape = 21, size=2, 
+             position = position_jitterdodge(), 
+             color="black", alpha=1)+ 
+  theme_classic() +
+  ylab(expression) +
+  xlab("")  +
+  annotate(geom="text", cex=6,
+           x=1.5, y=1, 
+           label=paste0("P ", ifelse(p<0.001, "< 0.001", paste0("= ",round(p,3)))), 
+           color="black") + 
+  theme(#panel.border = element_rect(colour = "black", fill=NA, size=0.2), 
+    axis.ticks = element_line(size=0.2,color="black"),
+    axis.ticks.length = unit(0.2,"cm"),
+    legend.position = "none",
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10))
+ggsave("Th2_violin.pdf", width = 4.5, height = 4)
