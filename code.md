@@ -118,6 +118,26 @@ ggsurvplot(fit,
           ggtheme = theme_bw(), 
           palette = c("#E7B800", "#2E9FDF"))
 #Sankey diagram（Figure2D and Figure2E）
+library(ggalluvial)
+library(ggplot2)
+library(dplyr)
+cliFile="clinical.txt" 
+trait="Fustat" 
+pdf(file="ggalluvial.pdf", width=6, height=6)
+mycol=rep(c("#029149","#6E568C","#E0367A","#D8D155","#223D6C","#D20A13","#431A3D","#91612D","#FFD121","#088247","#11AA4D","#58CDD9","#7A142C","#5D90BA","#64495D","#7CC767"),15)
+ggplot(corLodes, aes(x = x, stratum = stratum, alluvium = Cohort,fill = stratum, label = stratum)) +
+  	 scale_x_discrete(expand = c(0, 0)) +  
+  	 geom_flow(width = 2/10,aes.flow = "forward") + 
+	 geom_stratum(alpha = .9,width = 2/10) +
+	 scale_fill_manual(values = mycol) +
+	 	 geom_text(stat = "stratum", size = 3,color="black") +
+	 xlab("") + ylab("") + theme_bw() + 
+	 theme(axis.line = element_blank(),axis.ticks = element_blank(),axis.text.y = element_blank()) + 
+	 theme(panel.grid =element_blank()) + 
+	 theme(panel.border = element_blank()) + 
+	 ggtitle("") + guides(fill = FALSE)                            
+dev.off()
+
 #CAMOIP was used to make volcano plot(Figure2F)
 #Plotting code for Figure3A
 library(TCGAbiolinks)
